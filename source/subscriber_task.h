@@ -42,9 +42,21 @@
 #ifndef SUBSCRIBER_TASK_H_
 #define SUBSCRIBER_TASK_H_
 
-#include "FreeRTOS.h"
-#include "task.h"
-#include "queue.h"
+#include "cy_feature.h"
+#include "cy_debug.h"
+
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+#include "cyabs_rtos.h"
+
+#else
+    #ifdef COMPONENT_FREERTOS
+    /* FreeRTOS header files */
+    #include "FreeRTOS.h"
+    #include "task.h"
+    #include "queue.h"
+    #endif
+#endif
+
 #include "cy_mqtt_api.h"
 
 /*******************************************************************************
@@ -52,7 +64,7 @@
 ********************************************************************************/
 /* Task parameters for Subscriber Task. */
 #define SUBSCRIBER_TASK_PRIORITY           (2)
-#define SUBSCRIBER_TASK_STACK_SIZE         (1024 * 1)
+#define SUBSCRIBER_TASK_STACK_SIZE         (1024 * 2) // was (1024 * 1)
 
 /* 8-bit value denoting the device (LED) state. */
 #define DEVICE_ON_STATE                    (0x00u)
@@ -78,8 +90,15 @@ typedef struct{
 /*******************************************************************************
 * Extern Variables
 ********************************************************************************/
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+extern cy_thread_t subscriber_task_handle;
+extern cy_queue_t subscriber_task_q;
+
+#else
 extern TaskHandle_t subscriber_task_handle;
 extern QueueHandle_t subscriber_task_q;
+#endif
+
 extern uint32_t current_device_state;
 
 /*******************************************************************************

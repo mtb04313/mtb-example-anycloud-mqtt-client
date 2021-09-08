@@ -45,7 +45,6 @@
 #include "cyhal.h"
 #include "cybsp.h"
 #include "string.h"
-#include "FreeRTOS.h"
 
 /* Task header files */
 #include "subscriber_task.h"
@@ -78,11 +77,18 @@
 /******************************************************************************
 * Global Variables
 *******************************************************************************/
-/* Task handle for this task. */
-TaskHandle_t subscriber_task_handle;
+
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+cy_thread_t subscriber_task_handle = NULL;
 
 /* Handle of the queue holding the commands for the subscriber task */
+cy_queue_t subscriber_task_q = NULL;
+#else
 QueueHandle_t subscriber_task_q;
+
+/* Task handle for this task. */
+TaskHandle_t subscriber_task_handle;
+#endif
 
 /* Variable to denote the current state of the user LED that is also used by 
  * the publisher task.
@@ -134,12 +140,29 @@ void subscriber_task(void *pvParameters)
     subscribe_to_topic();
 
     /* Create a message queue to communicate with other tasks and callbacks. */
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+    if (CY_RSLT_SUCCESS !=  cy_rtos_init_queue( &subscriber_task_q,
+                                                SUBSCRIBER_TASK_QUEUE_LENGTH,
+                                                sizeof(subscriber_data_t)
+                                              )) {
+        DEBUG_PRINT(("cy_rtos_init_queue(subscriber_task_q) failed!\n"));
+    }
+
+#else
     subscriber_task_q = xQueueCreate(SUBSCRIBER_TASK_QUEUE_LENGTH, sizeof(subscriber_data_t));
+#endif
 
     while (true)
     {
         /* Wait for commands from other tasks and callbacks. */
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+        if (CY_RSLT_SUCCESS == cy_rtos_get_queue(  &subscriber_task_q,
+                                                   (void *)&subscriber_q_data,
+                                                   CY_RTOS_NEVER_TIMEOUT,
+                                                   false))
+#else
         if (pdTRUE == xQueueReceive(subscriber_task_q, &subscriber_q_data, portMAX_DELAY))
+#endif
         {
             switch(subscriber_q_data.cmd)
             {
@@ -204,7 +227,11 @@ static void subscribe_to_topic(void)
             break;
         }
 
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+        cy_rtos_delay_milliseconds(MQTT_SUBSCRIBE_RETRY_INTERVAL_MS);
+#else
         vTaskDelay(pdMS_TO_TICKS(MQTT_SUBSCRIBE_RETRY_INTERVAL_MS));
+#endif
     }
 
     if (result != CY_RSLT_SUCCESS)
@@ -214,7 +241,18 @@ static void subscribe_to_topic(void)
 
         /* Notify the MQTT client task about the subscription failure */
         mqtt_task_cmd = HANDLE_MQTT_SUBSCRIBE_FAILURE;
+
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+        if (CY_RSLT_SUCCESS != cy_rtos_put_queue(&mqtt_task_q,
+                                                 (void *)&mqtt_task_cmd,
+                                                 CY_RTOS_NEVER_TIMEOUT,
+                                                 false
+                                                )) {
+            DEBUG_PRINT(("cy_rtos_put_queue(mqtt_task_q) failed!\n"));
+        }
+#else
         xQueueSend(mqtt_task_q, &mqtt_task_cmd, portMAX_DELAY);
+#endif
     }
 }
 
@@ -273,7 +311,17 @@ void mqtt_subscription_callback(cy_mqtt_publish_info_t *received_msg_info)
     }
 
     /* Send the command and data to subscriber task queue */
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+    if (CY_RSLT_SUCCESS != cy_rtos_put_queue(&subscriber_task_q,
+                                             (void *)&subscriber_q_data,
+                                             CY_RTOS_NEVER_TIMEOUT,
+                                             false
+                                            )) {
+        DEBUG_PRINT(("cy_rtos_put_queue(subscriber_task_q) failed!\n"));
+    }
+#else
     xQueueSend(subscriber_task_q, &subscriber_q_data, portMAX_DELAY);
+#endif
 }
 
 /******************************************************************************

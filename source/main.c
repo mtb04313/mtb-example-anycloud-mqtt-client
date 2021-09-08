@@ -40,12 +40,23 @@
 *******************************************************************************/
 
 /* Header file includes */
+#include "cy_feature.h"
+#include "cy_debug.h"
+
 #include "cyhal.h"
 #include "cybsp.h"
 #include "cy_retarget_io.h"
 #include "mqtt_task.h"
-#include "FreeRTOS.h"
-#include "task.h"
+
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+#include "cyabs_rtos.h"
+
+#else
+    #ifdef COMPONENT_FREERTOS
+    #include "FreeRTOS.h"
+    #include "task.h"
+    #endif
+#endif
 
 /******************************************************************************
 * Global Variables
@@ -67,19 +78,9 @@ volatile int uxTopUsedPriority;
  *  int
  *
  ******************************************************************************/
-int main()
+int main_thread(void)
 {
     cy_rslt_t result;
-
-    /* This enables RTOS aware debugging in OpenOCD. */
-    uxTopUsedPriority = configMAX_PRIORITIES - 1;
-
-    /* Initialize the board support package. */
-    result = cybsp_init();
-    CY_ASSERT(CY_RSLT_SUCCESS == result);
-
-    /* To avoid compiler warnings. */
-    (void) result;
 
     /* Enable global interrupts. */
     __enable_irq();
@@ -94,15 +95,67 @@ int main()
     printf("CE229889 - AnyCloud Example: MQTT Client\n");
     printf("===============================================================\n\n");
 
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+    result = cy_rtos_create_thread( &mqtt_task_handle,
+                                    mqtt_client_task,
+                                    "MQTT Client task",
+                                    NULL,
+                                    MQTT_CLIENT_TASK_STACK_SIZE,
+                                    MQTT_CLIENT_TASK_PRIORITY,
+                                    (cy_thread_arg_t) NULL
+                                    );
+
+    if (CY_RSLT_SUCCESS != result) {
+        DEBUG_PRINT(("cy_rtos_create_thread (mqttThread) failed: (0x%lx)",
+                         result
+                        ));
+    }
+
+#else
     /* Create the MQTT Client task. */
     xTaskCreate(mqtt_client_task, "MQTT Client task", MQTT_CLIENT_TASK_STACK_SIZE, 
                 NULL, MQTT_CLIENT_TASK_PRIORITY, NULL);
+#endif
 
-    /* Start the FreeRTOS scheduler. */
+    return 0;
+}
+
+int main(void)
+{
+#ifdef COMPONENT_FREERTOS
+    int result;
+
+    uxTopUsedPriority = configMAX_PRIORITIES - 1;
+
+    if (CY_RSLT_SUCCESS != cybsp_init()) {
+        CY_ASSERT(0);
+    }
+
+    result = main_thread();
+
+    /* Start the FreeRTOS scheduler */
     vTaskStartScheduler();
 
-    /* Should never get here. */
+    /* Should never get here */
     CY_ASSERT(0);
+
+    return result;
+
+#elif defined COMPONENT_RTTHREAD
+    extern int entry(void);
+
+    static bool initialized = false;
+
+    uxTopUsedPriority = RT_THREAD_PRIORITY_MAX - 1 ;
+
+    if (!initialized) {
+        initialized = true;
+        return entry();
+    }
+    else {
+        return main_thread();
+    }
+#endif
 }
 
 /* [] END OF FILE */

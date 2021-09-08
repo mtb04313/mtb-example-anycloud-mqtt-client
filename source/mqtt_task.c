@@ -47,10 +47,6 @@
 #include "cyhal.h"
 #include "cybsp.h"
 
-/* FreeRTOS header files */
-#include "FreeRTOS.h"
-#include "task.h"
-
 /* Task header files */
 #include "mqtt_task.h"
 #include "subscriber_task.h"
@@ -116,11 +112,17 @@
 /* MQTT connection handle. */
 cy_mqtt_t mqtt_connection;
 
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+cy_thread_t mqtt_task_handle = NULL;
+
 /* Queue handle used to communicate results of various operations - MQTT 
  * Publish, MQTT Subscribe, MQTT connection, and Wi-Fi connection between tasks 
  * and callbacks.
  */
+cy_queue_t mqtt_task_q = NULL;
+#else
 QueueHandle_t mqtt_task_q;
+#endif
 
 /* Flag to denote initialization status of various operations. */
 uint32_t status_flag;
@@ -159,7 +161,11 @@ static cy_rslt_t mqtt_get_unique_client_identifier(char *mqtt_client_identifier)
  *  void
  *
  ******************************************************************************/
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+void mqtt_client_task(cy_thread_arg_t pvParameters)
+#else
 void mqtt_client_task(void *pvParameters)
+#endif
 {
     /* Structures that store the data to be sent/received to/from various
      * message queues.
@@ -174,8 +180,19 @@ void mqtt_client_task(void *pvParameters)
     /* To avoid compiler warnings */
     (void) pvParameters;
 
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+    if (CY_RSLT_SUCCESS !=  cy_rtos_init_queue( &mqtt_task_q,
+                                                MQTT_TASK_QUEUE_LENGTH,
+                                                sizeof(mqtt_task_cmd_t)
+                                              )) {
+        DEBUG_PRINT(("cy_rtos_init_queue(mqtt_task_q) failed!\n"));
+        goto exit_cleanup;
+    }
+
+#else
     /* Create a message queue to communicate with other tasks and callbacks. */
     mqtt_task_q = xQueueCreate(MQTT_TASK_QUEUE_LENGTH, sizeof(mqtt_task_cmd_t));
+#endif
 
     /* Initialize the Wi-Fi Connection Manager and jump to the cleanup block 
      * upon failure.
@@ -206,6 +223,20 @@ void mqtt_client_task(void *pvParameters)
         goto exit_cleanup;
     }
 
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+    if (CY_RSLT_SUCCESS != cy_rtos_create_thread(   &subscriber_task_handle,
+                                                    subscriber_task,
+                                                    "Subscriber task",
+                                                    NULL,
+                                                    SUBSCRIBER_TASK_STACK_SIZE,
+                                                    SUBSCRIBER_TASK_PRIORITY,
+                                                    (cy_thread_arg_t) NULL
+                                                )) {
+        DEBUG_PRINT(("Failed to create the Subscriber task!\n"));
+        goto exit_cleanup;
+    }
+
+#else
     /* Create the subscriber task and cleanup if the operation fails. */
     if (pdPASS != xTaskCreate(subscriber_task, "Subscriber task", SUBSCRIBER_TASK_STACK_SIZE,
                               NULL, SUBSCRIBER_TASK_PRIORITY, &subscriber_task_handle))
@@ -213,10 +244,29 @@ void mqtt_client_task(void *pvParameters)
         printf("Failed to create the Subscriber task!\n");
         goto exit_cleanup;
     }
+#endif
 
     /* Wait for the subscribe operation to complete. */
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+    cy_rtos_delay_milliseconds(TASK_CREATION_DELAY_MS);
+#else
     vTaskDelay(pdMS_TO_TICKS(TASK_CREATION_DELAY_MS));
+#endif
 
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+    if (CY_RSLT_SUCCESS != cy_rtos_create_thread(   &publisher_task_handle,
+                                                    publisher_task,
+                                                    "Publisher task",
+                                                    NULL,
+                                                    PUBLISHER_TASK_STACK_SIZE,
+                                                    PUBLISHER_TASK_PRIORITY,
+                                                    (cy_thread_arg_t) NULL
+                                                )) {
+        DEBUG_PRINT(("Failed to create the Publisher task!\n"));
+        goto exit_cleanup;
+    }
+
+#else
     /* Create the publisher task and cleanup if the operation fails. */
     if (pdPASS != xTaskCreate(publisher_task, "Publisher task", PUBLISHER_TASK_STACK_SIZE, 
                               NULL, PUBLISHER_TASK_PRIORITY, &publisher_task_handle))
@@ -224,11 +274,20 @@ void mqtt_client_task(void *pvParameters)
         printf("Failed to create Publisher task!\n");
         goto exit_cleanup;
     }
+#endif
 
     while (true)
     {
         /* Wait for results of MQTT operations from other tasks and callbacks. */
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+        if (CY_RSLT_SUCCESS == cy_rtos_get_queue(  &mqtt_task_q,
+                                                   (void *)&mqtt_status,
+                                                   CY_RTOS_NEVER_TIMEOUT,
+                                                   false))
+
+#else
         if (pdTRUE == xQueueReceive(mqtt_task_q, &mqtt_status, portMAX_DELAY))
+#endif
         {
             /* In this code example, the disconnection from the MQTT Broker or 
              * the Wi-Fi network is handled by the case 'HANDLE_DISCONNECTION'. 
@@ -256,7 +315,18 @@ void mqtt_client_task(void *pvParameters)
                 {
                     /* Deinit the publisher before initiating reconnections. */
                     publisher_q_data.cmd = PUBLISHER_DEINIT;
+
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+                    if (CY_RSLT_SUCCESS != cy_rtos_put_queue(&publisher_task_q,
+                                                             (void *)&publisher_q_data,
+                                                             CY_RTOS_NEVER_TIMEOUT,
+                                                             false
+                                                            )) {
+                        DEBUG_PRINT(("cy_rtos_put_queue(publisher_task_q) failed!\n"));
+                    }
+#else
                     xQueueSend(publisher_task_q, &publisher_q_data, portMAX_DELAY);
+#endif
 
                     /* Although the connection with the MQTT Broker is lost, 
                      * call the MQTT disconnect API for cleanup of threads and 
@@ -285,11 +355,33 @@ void mqtt_client_task(void *pvParameters)
 
                     /* Initiate MQTT subscribe post the reconnection. */
                     subscriber_q_data.cmd = SUBSCRIBE_TO_TOPIC;
+
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+                    if (CY_RSLT_SUCCESS != cy_rtos_put_queue(&subscriber_task_q,
+                                                             (void *)&subscriber_q_data,
+                                                             CY_RTOS_NEVER_TIMEOUT,
+                                                             false
+                                                            )) {
+                        DEBUG_PRINT(("cy_rtos_put_queue(subscriber_task_q) failed!\n"));
+                    }
+#else
                     xQueueSend(subscriber_task_q, &subscriber_q_data, portMAX_DELAY);
+#endif
 
                     /* Initialize Publisher post the reconnection. */
                     publisher_q_data.cmd = PUBLISHER_INIT;
+
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+                    if (CY_RSLT_SUCCESS != cy_rtos_put_queue(&publisher_task_q,
+                                                             (void *)&publisher_q_data,
+                                                             CY_RTOS_NEVER_TIMEOUT,
+                                                             false
+                                                            )) {
+                        DEBUG_PRINT(("cy_rtos_put_queue(publisher_task_q) failed!\n"));
+                    }
+#else
                     xQueueSend(publisher_task_q, &publisher_q_data, portMAX_DELAY);
+#endif
                     break;
                 }
 
@@ -302,19 +394,39 @@ void mqtt_client_task(void *pvParameters)
     /* Cleanup section: Delete subscriber and publisher tasks and perform
      * cleanup for various operations based on the status_flag.
      */
-    exit_cleanup:
+exit_cleanup:
     printf("\nTerminating Publisher and Subscriber tasks...\n");
-    if (subscriber_task_handle != NULL)
-    {
+
+    if (subscriber_task_handle != NULL) {
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+        if (CY_RSLT_SUCCESS != cy_rtos_terminate_thread(&subscriber_task_handle)) {
+            DEBUG_PRINT(("Failed to delete the Subscriber task!\n"));
+        }
+#else
         vTaskDelete(subscriber_task_handle);
+#endif
     }
-    if (publisher_task_handle != NULL)
-    {
+
+    if (publisher_task_handle != NULL) {
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+        if (CY_RSLT_SUCCESS != cy_rtos_terminate_thread(&publisher_task_handle)) {
+            DEBUG_PRINT(("Failed to delete the Publisher task!\n"));
+        }
+#else
         vTaskDelete(publisher_task_handle);
+#endif
     }
+
     cleanup();
     printf("\nCleanup Done\nTerminating the MQTT task...\n\n");
+
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+    if (CY_RSLT_SUCCESS != cy_rtos_terminate_thread(&mqtt_task_handle)) {
+        DEBUG_PRINT(("Failed to delete the MQTT task!\n"));
+    }
+#else
     vTaskDelete(NULL);
+#endif
 }
 
 /******************************************************************************
@@ -377,7 +489,12 @@ static cy_rslt_t wifi_connect(void)
 
             printf("Connection to Wi-Fi network failed with error code 0x%0X. Retrying in %d ms. Retries left: %d\n",
                 (int)result, WIFI_CONN_RETRY_INTERVAL_MS, (int)(MAX_WIFI_CONN_RETRIES - retry_count - 1));
+
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+            cy_rtos_delay_milliseconds(WIFI_CONN_RETRY_INTERVAL_MS);
+#else
             vTaskDelay(pdMS_TO_TICKS(WIFI_CONN_RETRY_INTERVAL_MS));
+#endif
         }
 
         printf("\nExceeded maximum Wi-Fi connection attempts!\n");
@@ -413,7 +530,11 @@ static cy_rslt_t mqtt_init(void)
     CHECK_RESULT(result, LIBS_INITIALIZED, "MQTT library initialization failed!\n\n");
 
     /* Allocate buffer for MQTT send and receive operations. */
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+    mqtt_network_buffer = (uint8_t *) malloc(sizeof(uint8_t) * MQTT_NETWORK_BUFFER_SIZE);
+#else
     mqtt_network_buffer = (uint8_t *) pvPortMalloc(sizeof(uint8_t) * MQTT_NETWORK_BUFFER_SIZE);
+#endif
     if(mqtt_network_buffer == NULL)
     {
         result = ~CY_RSLT_SUCCESS;
@@ -513,7 +634,12 @@ static cy_rslt_t mqtt_connect(void)
 
         printf("MQTT connection failed with error code 0x%0X. Retrying in %d ms. Retries left: %d\n", 
                (int)result, MQTT_CONN_RETRY_INTERVAL_MS, (int)(MAX_MQTT_CONN_RETRIES - retry_count - 1));
+
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+        cy_rtos_delay_milliseconds(MQTT_CONN_RETRY_INTERVAL_MS);
+#else
         vTaskDelay(pdMS_TO_TICKS(MQTT_CONN_RETRY_INTERVAL_MS));
+#endif
     }
 
     printf("\nExceeded maximum MQTT connection attempts\n");
@@ -568,7 +694,17 @@ void mqtt_event_callback(cy_mqtt_t mqtt_handle, cy_mqtt_event_t event, void *use
             /* Send the message to the MQTT client task to handle the 
              * disconnection. 
              */
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+            if (CY_RSLT_SUCCESS != cy_rtos_put_queue(&mqtt_task_q,
+                                         (void *)&mqtt_task_cmd,
+                                         CY_RTOS_NEVER_TIMEOUT,
+                                         false
+                                        )) {
+                DEBUG_PRINT(("cy_rtos_put_queue(mqtt_task_q) failed!\n"));
+            }
+#else
             xQueueSend(mqtt_task_q, &mqtt_task_cmd, portMAX_DELAY);
+#endif
             break;
         }
 
@@ -656,7 +792,11 @@ static void cleanup(void)
     /* Deallocate the network buffer. */
     if (status_flag & BUFFER_INITIALIZED)
     {
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+        free((void *) mqtt_network_buffer);
+#else
         vPortFree((void *) mqtt_network_buffer);
+#endif
     }
     /* Deinit the MQTT library. */
     if (status_flag & LIBS_INITIALIZED)

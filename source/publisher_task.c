@@ -45,7 +45,6 @@
 
 #include "cyhal.h"
 #include "cybsp.h"
-#include "FreeRTOS.h"
 
 /* Task header files */
 #include "publisher_task.h"
@@ -81,11 +80,18 @@
 /******************************************************************************
 * Global Variables
 *******************************************************************************/
-/* FreeRTOS task handle for this task. */
-TaskHandle_t publisher_task_handle;
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+cy_thread_t publisher_task_handle = NULL;
 
 /* Handle of the queue holding the commands for the publisher task */
+cy_queue_t publisher_task_q = NULL;
+#else
 QueueHandle_t publisher_task_q;
+
+/* FreeRTOS task handle for this task. */
+TaskHandle_t publisher_task_handle;
+#endif
+
 
 /* Structure to store publish message information. */
 cy_mqtt_publish_info_t publish_info =
@@ -137,12 +143,29 @@ void publisher_task(void *pvParameters)
     publisher_init();
 
     /* Create a message queue to communicate with other tasks and callbacks. */
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+    if (CY_RSLT_SUCCESS !=  cy_rtos_init_queue( &publisher_task_q,
+                                                PUBLISHER_TASK_QUEUE_LENGTH,
+                                                sizeof(publisher_data_t)
+                                              )) {
+        DEBUG_PRINT(("cy_rtos_init_queue(publisher_task_q) failed!\n"));
+    }
+
+#else
     publisher_task_q = xQueueCreate(PUBLISHER_TASK_QUEUE_LENGTH, sizeof(publisher_data_t));
+#endif
 
     while (true)
     {
         /* Wait for commands from other tasks and callbacks. */
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+        if (CY_RSLT_SUCCESS == cy_rtos_get_queue(  &publisher_task_q,
+                                                   (void *)&publisher_q_data,
+                                                   CY_RTOS_NEVER_TIMEOUT,
+                                                   false))
+#else
         if (pdTRUE == xQueueReceive(publisher_task_q, &publisher_q_data, portMAX_DELAY))
+#endif
         {
             switch(publisher_q_data.cmd)
             {
@@ -179,7 +202,18 @@ void publisher_task(void *pvParameters)
                          * client task.
                          */
                         mqtt_task_cmd = HANDLE_MQTT_PUBLISH_FAILURE;
+
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+                        if (CY_RSLT_SUCCESS != cy_rtos_put_queue(&mqtt_task_q,
+                                                                 (void *)&mqtt_task_cmd,
+                                                                 CY_RTOS_NEVER_TIMEOUT,
+                                                                 false
+                                                                )) {
+                            DEBUG_PRINT(("cy_rtos_put_queue(mqtt_task_q) failed!\n"));
+                        }
+#else
                         xQueueSend(mqtt_task_q, &mqtt_task_cmd, portMAX_DELAY);
+#endif
                     }
                     break;
                 }
@@ -257,7 +291,6 @@ static void publisher_deinit(void)
  ******************************************************************************/
 static void isr_button_press(void *callback_arg, cyhal_gpio_event_t event)
 {
-    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     publisher_data_t publisher_q_data;
 
     /* To avoid compiler warnings */
@@ -278,8 +311,19 @@ static void isr_button_press(void *callback_arg, cyhal_gpio_event_t event)
     }
 
     /* Send the command and data to publisher task over the queue */
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+    if (CY_RSLT_SUCCESS != cy_rtos_put_queue(&publisher_task_q,
+                                             (void *)&publisher_q_data,
+                                             CY_RTOS_NEVER_TIMEOUT,
+                                             true
+                                            )) {
+        DEBUG_PRINT(("cy_rtos_put_queue(publisher_task_q) failed!\n"));
+    }
+#else
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     xQueueSendFromISR(publisher_task_q, &publisher_q_data, &xHigherPriorityTaskWoken);
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+#endif
 }
 
 /* [] END OF FILE */

@@ -42,16 +42,27 @@
 #ifndef PUBLISHER_TASK_H_
 #define PUBLISHER_TASK_H_
 
-#include "FreeRTOS.h"
-#include "task.h"
-#include "queue.h"
+#include "cy_feature.h"
+#include "cy_debug.h"
+
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+#include "cyabs_rtos.h"
+
+#else
+    #ifdef COMPONENT_FREERTOS
+    /* FreeRTOS header files */
+    #include "FreeRTOS.h"
+    #include "task.h"
+    #include "queue.h"
+    #endif
+#endif
 
 /*******************************************************************************
 * Macros
 ********************************************************************************/
 /* Task parameters for Button Task. */
 #define PUBLISHER_TASK_PRIORITY               (2)
-#define PUBLISHER_TASK_STACK_SIZE             (1024 * 1)
+#define PUBLISHER_TASK_STACK_SIZE             (1024 * 2) // was (1024 * 1)
 
 /*******************************************************************************
 * Global Variables
@@ -73,8 +84,13 @@ typedef struct{
 /*******************************************************************************
 * Extern Variables
 ********************************************************************************/
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+extern cy_thread_t publisher_task_handle;
+extern cy_queue_t publisher_task_q;
+#else
 extern TaskHandle_t publisher_task_handle;
 extern QueueHandle_t publisher_task_q;
+#endif
 
 /*******************************************************************************
 * Function Prototypes

@@ -42,8 +42,22 @@
 #ifndef MQTT_TASK_H_
 #define MQTT_TASK_H_
 
-#include "FreeRTOS.h"
-#include "queue.h"
+#include "cy_feature.h"
+#include "cy_debug.h"
+
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+#include "cyabs_rtos.h"
+
+#else
+    #ifdef COMPONENT_FREERTOS
+    /* FreeRTOS header files */
+    #include "FreeRTOS.h"
+    #include "task.h"
+    #include "queue.h"
+    #endif
+#endif
+
+
 #include "cy_mqtt_api.h"
 
 
@@ -52,7 +66,7 @@
 ********************************************************************************/
 /* Task parameters for MQTT Client Task. */
 #define MQTT_CLIENT_TASK_PRIORITY       (2)
-#define MQTT_CLIENT_TASK_STACK_SIZE     (1024 * 2)
+#define MQTT_CLIENT_TASK_STACK_SIZE     (1024 * 4) //was (1024 * 2)
 
 /*******************************************************************************
 * Global Variables
@@ -69,12 +83,23 @@ typedef enum
  * Extern variables
  ******************************************************************************/
 extern cy_mqtt_t mqtt_connection;
+
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+extern cy_thread_t mqtt_task_handle;
+extern cy_queue_t mqtt_task_q;
+
+#else
 extern QueueHandle_t mqtt_task_q;
+#endif
 
 /*******************************************************************************
 * Function Prototypes
 ********************************************************************************/
+#if (FEATURE_ABSTRACTION_RTOS == ENABLE_FEATURE)
+void mqtt_client_task(cy_thread_arg_t pvParameters);
+#else
 void mqtt_client_task(void *pvParameters);
+#endif
 
 #endif /* MQTT_TASK_H_ */
 
