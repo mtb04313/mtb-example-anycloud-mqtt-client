@@ -1,12 +1,12 @@
 /*******************************************************************************
- * File Name: rtconfig.c
- *
- * Description: This file contains functions needed to start RT-Thread OS.
- *
- * Related Document: See README.md
- *
- *
- *********************************************************************************
+* File Name: feature_config.h
+*
+* Description: This file defines whether features are enabled / disabled
+*
+* Related Document: See README.md
+*
+*
+*********************************************************************************
  Copyright 2020-2021, Cypress Semiconductor Corporation (an Infineon company) or
  an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
 
@@ -37,64 +37,29 @@
  including Cypress's product in a High Risk Product, the manufacturer
  of such system or application assumes all risk of such use and in doing
  so agrees to indemnify Cypress against all liability.
- *******************************************************************************/
+*******************************************************************************/
 
+#ifndef SOURCE_FEATURE_CONFIG_H_
+#define SOURCE_FEATURE_CONFIG_H_
 
-/*******************************************************************************
- *        Header Files
- *******************************************************************************/
-#include "cybsp.h"
-#include "cyabs_rtos.h"
-
-
-/*******************************************************************************
- *        Variable Definitions
- *******************************************************************************/
-
-#ifdef COMPONENT_RTTHREAD
-//#include <rthw.h>
-
-/* Allocate the memory for the heap. */
-ALIGN(RT_ALIGN_SIZE)
-static uint8_t ucHeap[ RT_configTOTAL_HEAP_SIZE ];
-
-
-/******************************************************************************
- *                          Function Definitions
- ******************************************************************************/
-
-static void SysTick_Handler_CB(void)
+#ifdef __cplusplus
+extern "C"
 {
-    /* enter interrupt */
-    rt_interrupt_enter();
-
-    rt_tick_increase();
-
-    /* leave interrupt */
-    rt_interrupt_leave();
-}
-
-void rt_hw_board_init()
-{
-    if (CY_RSLT_SUCCESS != cybsp_init()) {
-        CY_ASSERT(0);
-    }
-
-    SystemCoreClockUpdate();
-
-    Cy_SysTick_Init(CY_SYSTICK_CLOCK_SOURCE_CLK_CPU, SystemCoreClock/RT_TICK_PER_SECOND);
-    Cy_SysTick_SetCallback(0, SysTick_Handler_CB);
-    Cy_SysTick_EnableInterrupt();
-
-    rt_system_heap_init((void*)ucHeap, (void*)(ucHeap + sizeof(ucHeap)));
-
-#if 0 // not required for PSoC
-    /* initialize UART device */
-    rt_hw_uart_init();
-    rt_console_set_device(RT_CONSOLE_DEVICE_NAME);
 #endif
-}
 
+
+/*-- Public Definitions -------------------------------------------------*/
+
+#define ENABLE_FEATURE                  1
+#define DISABLE_FEATURE                 2
+
+#define FEATURE_ABSTRACTION_RTOS        ENABLE_FEATURE
+#define FEATURE_UNIT_TEST_RTOS          DISABLE_FEATURE
+
+#ifdef __cplusplus
+}
 #endif
+
+#endif      /* SOURCE_FEATURE_CONFIG_H_ */
 
 /* [] END OF FILE */

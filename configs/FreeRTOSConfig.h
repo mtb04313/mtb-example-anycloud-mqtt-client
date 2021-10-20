@@ -70,7 +70,6 @@
  *
  ******************************************************************************/
 
-
 #ifndef FREERTOS_CONFIG_H
 #define FREERTOS_CONFIG_H
 
@@ -248,7 +247,8 @@ standard names - or at least those used in the unmodified vector table. */
  */
 extern void vApplicationSleep( uint32_t xExpectedIdleTime );
 #define portSUPPRESS_TICKS_AND_SLEEP( xIdleTime ) vApplicationSleep( xIdleTime )
-#define configUSE_TICKLESS_IDLE                 2
+#define configUSE_TICKLESS_IDLE 0 // PSoC: use 0 when debugging (e.g. stepping code / pause execution etc)
+#define configEXPECTED_IDLE_TIME_BEFORE_SLEEP 200 // PSoC: 200/500 is ok; 100 is not ok
 
 #else
 #define configUSE_TICKLESS_IDLE                 0

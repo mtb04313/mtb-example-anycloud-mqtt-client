@@ -71,7 +71,7 @@
 #define RT_USING_HEAP
 
 /* added */
-#define configTOTAL_HEAP_SIZE             (50*1024)
+#define RT_configTOTAL_HEAP_SIZE          (50*1024)
 #define HAVE_SIGVAL
 #define HAVE_SIGINFO
 #define HAVE_SIGEVENT

@@ -40,7 +40,7 @@
 *******************************************************************************/
 
 /* Header file includes */
-#include "cy_feature.h"
+#include "feature_config.h"
 #include "cy_debug.h"
 
 #include "cyhal.h"

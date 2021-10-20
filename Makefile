@@ -60,6 +60,7 @@ TOOLCHAIN=GCC_ARM
 # If CONFIG is manually edited, ensure to update or regenerate launch configurations
 # for your IDE.
 CONFIG=Debug
+#CONFIG=Custom
 
 # If set to "true" or "1", display full command-lines when building.
 VERBOSE=
@@ -99,7 +100,7 @@ INCLUDES=./configs
 MBEDTLSFLAGS = MBEDTLS_USER_CONFIG_FILE='"mbedtls_user_config.h"'
 
 # Add additional defines to the build process (without a leading -D).
-DEFINES=$(MBEDTLSFLAGS) CYBSP_WIFI_CAPABLE CY_RETARGET_IO_CONVERT_LF_TO_CRLF 
+DEFINES=$(MBEDTLSFLAGS) CYBSP_WIFI_CAPABLE CY_RETARGET_IO_CONVERT_LF_TO_CRLF ENABLE_MQTT_LOGS
 
 # CY8CPROTO-062-4343W board shares the same GPIO for the user button (USER BTN1)
 # and the CYW4343W host wake up pin. Since this example uses the GPIO for  
@@ -116,6 +117,11 @@ VFP_SELECT=
 #
 # NOTE: Includes and defines should use the INCLUDES and DEFINES variable
 # above.
+# 	-O0 disable optimization
+#   -Og optimized debugging experience
+# Requires CONFIG=Custom above
+#CFLAGS=-O0
+#CFLAGS=-Og
 CFLAGS=
 
 # Additional / custom C++ compiler flags.
@@ -129,6 +135,7 @@ CXXFLAGS=
 # NOTE: Includes and defines should use the INCLUDES and DEFINES variable
 # above.
 ASFLAGS=-Wa,-mimplicit-it=always
+#ASFLAGS=
 
 # Additional / custom linker flags.
 LDFLAGS=
